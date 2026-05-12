@@ -491,15 +491,20 @@ function updateProj(kind,id,val) {
   updateStats();
 }
 function updateStats() {
-  const e=getEntry(S.date);
-  const valid=e.todos.filter(t=>t.text.trim());
-  const done=valid.filter(t=>t.done);
-  const exec=valid.length?Math.round(done.length/valid.length*100):0;
-  const execEl=document.getElementById('exec-val');
-  if(execEl){execEl.textContent=exec+'%';execEl.style.color=exec>=80?'var(--green)':exec>=50?'var(--amber)':'var(--red)';}
-  const sub=document.getElementById('exec-sub'); if(sub) sub.textContent=done.length+'/'+valid.length+' 완료';
+  var e=getEntry(S.date);
+  var valid=e.todos.filter(function(t){return t.text.trim();});
+  var done=valid.filter(function(t){return t.done;});
+  var exec=valid.length?Math.round(done.length/valid.length*100):0;
+  var execEl=document.getElementById('exec-val');
+  if(execEl){
+    execEl.textContent=exec+'%';
+    if(exec>=80) execEl.style.color='var(--green)';
+    else if(exec>=50) execEl.style.color='var(--amber)';
+    else execEl.style.color='var(--red)';
+  }
+  var sub=document.getElementById('exec-sub');
+  if(sub) sub.textContent=done.length+'/'+valid.length+' 완료';
 }
-
 // rate
 function updateRate(p,v) { const e=getEntry(S.date); setEntry(S.date,{inputRates:{...e.inputRates,[p]:v}}); renderToday(); }
 
