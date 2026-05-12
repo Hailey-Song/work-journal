@@ -216,6 +216,20 @@
     </div>
   </div>
 
+  
+  <!-- DASHBOARD -->
+  <div class="page" id="page-dashboard">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.4px">📊 대시보드</h2>
+      <select id="dash-month-sel" onchange="renderDashboard()" style="border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:14px;color:var(--text);background:var(--bg);font-family:inherit"></select>
+    </div>
+    <div class="stat-row" id="dash-summary"></div>
+    <!-- 차트 유형 선택 탭 -->
+    <div id="chart-tabs" style="display:flex;gap:8px;margin:16px 0 20px;flex-wrap:wrap"></div>
+    <!-- 차트 영역 -->
+    <div id="dash-chart-area"></div>
+  </div>
+
   <!-- HISTORY -->
   <div class="page" id="page-history">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
@@ -231,6 +245,7 @@
   <button class="tab-btn active" id="tab-today" onclick="setPage('today')"><span class="tab-icon">📝</span><span class="tab-label">오늘</span></button>
   <button class="tab-btn" id="tab-projects" onclick="setPage('projects')"><span class="tab-icon">📁</span><span class="tab-label">프로젝트</span></button>
   <button class="tab-btn" id="tab-history" onclick="setPage('history')"><span class="tab-icon">🗂</span><span class="tab-label">히스토리</span></button>
+  <button class="tab-btn" id="tab-dashboard" onclick="setPage('dashboard')"><span class="tab-icon">📊</span><span class="tab-label">대시보드</span></button>
 </div>
 
 <div class="toast" id="toast" style="display:none"></div>
@@ -270,13 +285,14 @@ function setEntry(date,patch) {
 // ── PAGES ────────────────────────────────────────────────────────────────────
 function setPage(p) {
   S.page=p;
-  ['today','projects','history'].forEach(n=>{
+  ['today','projects','history','dashboard'].forEach(n=>{
     document.getElementById('page-'+n).classList.toggle('active',n===p);
     document.getElementById('tab-'+n).classList.toggle('active',n===p);
   });
   if(p==='today') renderToday();
   if(p==='projects') renderProjects();
   if(p==='history') renderHistory();
+  if(p==='dashboard') initDashboard();
 }
 
 // ── TOAST ────────────────────────────────────────────────────────────────────
@@ -602,6 +618,220 @@ async function handleAiTodos() {
   } catch { showToast('AI 생성 실패','err'); }
   btn.disabled=false; btn.textContent='✨ 내일 투두 생성';
 }
+
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+var dashChartType = 'pie';
+var CHART_TYPES = [
+  {id:'pie',    label:'🥧 파이',     title:'프로젝트별 투입율 비중'},
+  {id:'bar',    label:'📊 막대',     title:'프로젝트별 평균 투입율'},
+  {id:'line',   label:'📈 추이',     title:'날짜별 투입율 추이'},
+  {id:'newproj',label:'🆕 신규 프로젝트', title:'월별 신규 프로젝트 생성'}
+];
+var COLORS = ['#1D9E75','#2eaadc','#9b59b6','#e67e22','#e74c3c','#1abc9c','#f39c12','#3498db'];
+
+function initDashboard() {
+  var sel = document.getElementById('dash-month-sel');
+  var months = {};
+  Object.keys(S.entries).forEach(function(d){ months[d.slice(0,7)]=1; });
+  if(!Object.keys(months).length) {
+    var now = new Date();
+    var m = now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
+    months[m]=1;
+  }
+  var sorted = Object.keys(months).sort().reverse();
+  sel.innerHTML = sorted.map(function(m){
+    var parts = m.split('-');
+    return '<option value="'+m+'">'+parts[0]+'년 '+parseInt(parts[1])+'월</option>';
+  }).join('');
+  renderChartTabs();
+  renderDashboard();
+}
+
+function renderChartTabs() {
+  var el = document.getElementById('chart-tabs');
+  if(!el) return;
+  el.innerHTML = CHART_TYPES.map(function(ct){
+    var active = ct.id===dashChartType;
+    return '<button onclick="selectChartType(\''+ct.id+'\')" style="'
+      +'padding:7px 14px;border-radius:20px;border:1px solid '+(active?'var(--green)':'var(--border)')
+      +';background:'+(active?'var(--green)':'transparent')
+      +';color:'+(active?'#fff':'var(--text2)')
+      +';font-size:13px;font-weight:'+(active?'600':'400')
+      +';cursor:pointer;font-family:inherit">'+ct.label+'</button>';
+  }).join('');
+}
+
+function selectChartType(type) {
+  dashChartType = type;
+  renderChartTabs();
+  renderDashboard();
+}
+
+function getDashData(month) {
+  var entries = Object.entries(S.entries)
+    .filter(function(kv){ return kv[0].startsWith(month); })
+    .sort(function(a,b){ return a[0].localeCompare(b[0]); });
+  var allRates = {}, dailyRates = [], dailyExec = [];
+  entries.forEach(function(kv){
+    var date=kv[0], e=kv[1];
+    var tot=(e.todos||[]).filter(function(t){return t.text.trim();}).length;
+    var don=(e.todos||[]).filter(function(t){return t.done&&t.text.trim();}).length;
+    dailyExec.push({date:date, rate:tot>0?Math.round(don/tot*100):null});
+    var dayR={};
+    Object.entries(e.inputRates||{}).forEach(function(pv){
+      var p=pv[0],v=Number(pv[1])||0;
+      if(v>0){ allRates[p]=(allRates[p]||0)+v; dayR[p]=v; }
+    });
+    dailyRates.push({date:date, rates:dayR});
+  });
+  var workDays = entries.length;
+  var avgRates = {};
+  Object.entries(allRates).forEach(function(pv){ avgRates[pv[0]]=Math.round(pv[1]/Math.max(workDays,1)); });
+  return {entries:entries, workDays:workDays, allRates:allRates, avgRates:avgRates, dailyRates:dailyRates, dailyExec:dailyExec};
+}
+
+function renderDashboard() {
+  var sel = document.getElementById('dash-month-sel');
+  if(!sel||!sel.value) return;
+  var month = sel.value;
+  var d = getDashData(month);
+
+  // 요약 카드
+  var execRates = d.dailyExec.filter(function(x){return x.rate!==null;}).map(function(x){return x.rate;});
+  var avgExec = execRates.length ? Math.round(execRates.reduce(function(s,v){return s+v;},0)/execRates.length) : 0;
+  var execColor = avgExec>=80?'var(--green)':avgExec>=50?'var(--amber)':'var(--red)';
+  document.getElementById('dash-summary').innerHTML =
+    '<div class="stat-card"><div class="stat-label">업무일수</div><div class="stat-val" style="color:var(--text)">'+d.workDays+'일</div><div class="stat-sub">'+month.replace('-','년 ')+'월</div></div>'
+    +'<div class="stat-card"><div class="stat-label">평균 실행률</div><div class="stat-val" style="color:'+execColor+'">'+avgExec+'%</div><div class="stat-sub">일평균</div></div>'
+    +'<div class="stat-card"><div class="stat-label">프로젝트 수</div><div class="stat-val" style="color:var(--blue)">'+Object.keys(d.avgRates).length+'개</div><div class="stat-sub">투입 프로젝트</div></div>';
+
+  // 차트
+  var ct = CHART_TYPES.find(function(c){return c.id===dashChartType;});
+  var area = document.getElementById('dash-chart-area');
+  area.innerHTML = '<div class="sec-head" style="margin-bottom:12px"><span class="sec-title">'+ct.title+'</span></div><div id="dash-inner"></div>';
+
+  if(dashChartType==='pie') renderPieChart('dash-inner', d.allRates);
+  else if(dashChartType==='bar') renderBarChart('dash-inner', d.avgRates);
+  else if(dashChartType==='line') renderLineChart('dash-inner', d.dailyRates, Object.keys(d.avgRates));
+  else if(dashChartType==='newproj') renderNewProjChart('dash-inner', month);
+}
+
+function renderPieChart(elId, allRates) {
+  var el = document.getElementById(elId);
+  if(!Object.keys(allRates).length){ el.innerHTML='<div class="empty-hint">투입율 데이터가 없어요</div>'; return; }
+  var total = Object.values(allRates).reduce(function(s,v){return s+v;},0);
+  var entries = Object.entries(allRates).sort(function(a,b){return b[1]-a[1];});
+  var W=280, CX=140, CY=130, R=100, IR=50;
+  var svg = '<svg width="'+W+'" height="'+(CY*2+10)+'" viewBox="0 0 '+W+' '+(CY*2+10)+'">';
+  var startAngle = -Math.PI/2;
+  entries.forEach(function(pv,i){
+    var p=pv[0],v=pv[1];
+    var slice = (v/total)*2*Math.PI;
+    var endAngle = startAngle+slice;
+    var x1=CX+R*Math.cos(startAngle), y1=CY+R*Math.sin(startAngle);
+    var x2=CX+R*Math.cos(endAngle), y2=CY+R*Math.sin(endAngle);
+    var ix1=CX+IR*Math.cos(startAngle), iy1=CY+IR*Math.sin(startAngle);
+    var ix2=CX+IR*Math.cos(endAngle), iy2=CY+IR*Math.sin(endAngle);
+    var large = slice>Math.PI?1:0;
+    var color=COLORS[i%COLORS.length];
+    svg+='<path d="M '+ix1+' '+iy1+' L '+x1+' '+y1+' A '+R+' '+R+' 0 '+large+' 1 '+x2+' '+y2+' L '+ix2+' '+iy2+' A '+IR+' '+IR+' 0 '+large+' 0 '+ix1+' '+iy1+' Z" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
+    // 라벨
+    var midAngle = startAngle+slice/2;
+    var labelR = IR+(R-IR)*0.55;
+    var lx=CX+labelR*Math.cos(midAngle), ly=CY+labelR*Math.sin(midAngle);
+    var pct=Math.round(v/total*100);
+    if(pct>=5) svg+='<text x="'+lx+'" y="'+ly+'" font-size="11" font-weight="700" fill="#fff" text-anchor="middle" dominant-baseline="middle">'+pct+'%</text>';
+    startAngle=endAngle;
+  });
+  svg+='</svg>';
+
+  // 범례
+  var legend = entries.map(function(pv,i){
+    var pct=Math.round(pv[1]/total*100);
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--bg3)">'
+      +'<span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:3px;background:'+COLORS[i%COLORS.length]+';flex-shrink:0"></span><span style="font-size:14px">'+pv[0]+'</span></span>'
+      +'<span style="font-weight:700;color:'+COLORS[i%COLORS.length]+';font-size:14px">'+pct+'%</span></div>';
+  }).join('');
+
+  el.innerHTML='<div style="display:flex;flex-direction:column;align-items:center">'+svg+'</div><div style="margin-top:16px">'+legend+'</div>';
+}
+
+function renderBarChart(elId, avgRates) {
+  var el = document.getElementById(elId);
+  if(!Object.keys(avgRates).length){ el.innerHTML='<div class="empty-hint">투입율 데이터가 없어요</div>'; return; }
+  var sorted = Object.entries(avgRates).sort(function(a,b){return b[1]-a[1];});
+  el.innerHTML = sorted.map(function(pv,i){
+    var color=COLORS[i%COLORS.length];
+    return '<div style="margin-bottom:14px">'
+      +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">'
+      +'<span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:'+color+';display:inline-block"></span>'+pv[0]+'</span>'
+      +'<span style="font-weight:700;color:'+color+'">'+pv[1]+'%</span></div>'
+      +'<div style="height:10px;border-radius:5px;background:var(--bg3);overflow:hidden">'
+      +'<div style="width:'+Math.min(pv[1],100)+'%;height:100%;border-radius:5px;background:'+color+';transition:width .5s"></div></div></div>';
+  }).join('');
+}
+
+function renderLineChart(elId, dailyRates, projects) {
+  var el = document.getElementById(elId);
+  if(!dailyRates.length||!projects.length){ el.innerHTML='<div class="empty-hint">투입율 데이터가 없어요</div>'; return; }
+  var W=Math.max(320,dailyRates.length*32), H=180, PL=36, PR=10, PT=10, PB=30;
+  var cW=W-PL-PR, cH=H-PT-PB;
+  var xStep=cW/(dailyRates.length-1||1);
+  var svg='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px">';
+  [0,25,50,75,100].forEach(function(v){
+    var y=PT+cH-(v/100*cH);
+    svg+='<line x1="'+PL+'" y1="'+y+'" x2="'+(W-PR)+'" y2="'+y+'" stroke="var(--bg3)" stroke-width="1"/>';
+    svg+='<text x="'+(PL-4)+'" y="'+(y+4)+'" font-size="9" fill="var(--text3)" text-anchor="end">'+v+'</text>';
+  });
+  projects.forEach(function(p,pi){
+    var color=COLORS[pi%COLORS.length];
+    var pts=dailyRates.map(function(d,i){ return {x:PL+i*xStep, y:PT+cH-((d.rates[p]||0)/100*cH), v:d.rates[p]||0}; });
+    var path=pts.map(function(pt,i){return (i===0?'M':'L')+pt.x.toFixed(1)+','+pt.y.toFixed(1);}).join(' ');
+    svg+='<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>';
+    pts.forEach(function(pt){ if(pt.v>0) svg+='<circle cx="'+pt.x.toFixed(1)+'" cy="'+pt.y.toFixed(1)+'" r="3" fill="'+color+'"/>'; });
+  });
+  dailyRates.forEach(function(d,i){
+    svg+='<text x="'+(PL+i*xStep).toFixed(1)+'" y="'+(H-6)+'" font-size="9" fill="var(--text3)" text-anchor="middle">'+parseInt(d.date.slice(8))+'일</text>';
+  });
+  svg+='</svg>';
+  var legend=projects.map(function(p,i){ return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin-right:10px"><span style="width:12px;height:3px;background:'+COLORS[i%COLORS.length]+';display:inline-block;border-radius:2px"></span>'+p+'</span>'; }).join('');
+  el.innerHTML='<div style="overflow-x:auto">'+svg+'</div><div style="margin-top:8px">'+legend+'</div>';
+}
+
+function renderNewProjChart(elId, currentMonth) {
+  var el = document.getElementById(elId);
+  // 모든 월의 프로젝트 누적 추적
+  var allMonths = Object.keys(S.entries).map(function(d){return d.slice(0,7);})
+    .filter(function(v,i,a){return a.indexOf(v)===i;}).sort();
+  if(!allMonths.length){ el.innerHTML='<div class="empty-hint">데이터가 없어요</div>'; return; }
+
+  var seen = {}, monthData=[];
+  allMonths.forEach(function(m){
+    var newProjs=[];
+    Object.entries(S.entries).filter(function(kv){return kv[0].startsWith(m);}).forEach(function(kv){
+      Object.keys(kv[1].inputRates||{}).forEach(function(p){
+        if(!seen[p]){ seen[p]=1; newProjs.push(p); }
+      });
+    });
+    monthData.push({month:m, newProjs:newProjs, count:newProjs.length});
+  });
+
+  var html = monthData.map(function(d){
+    var isCurrentMonth = d.month===currentMonth;
+    var label = d.month.split('-');
+    return '<div style="margin-bottom:16px;padding:12px 14px;border-radius:10px;border:1px solid '+(isCurrentMonth?'var(--green)':'var(--border)')+';background:'+(isCurrentMonth?'#1D9E7511':'transparent')+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +'<span style="font-size:13px;font-weight:600">'+parseInt(label[0])+'년 '+parseInt(label[1])+'월</span>'
+      +'<span style="font-size:13px;font-weight:700;color:'+(d.count>0?'var(--green)':'var(--text3)')+'">+'+d.count+'개</span></div>'
+      +(d.newProjs.length?'<div style="display:flex;gap:6px;flex-wrap:wrap">'+d.newProjs.map(function(p){
+        return '<span style="background:var(--bg3);color:var(--text2);border-radius:5px;padding:2px 8px;font-size:11px">'+p+'</span>';
+      }).join('')+'</div>':'<div style="font-size:12px;color:var(--text3)">신규 없음</div>')
+      +'</div>';
+  }).join('');
+  el.innerHTML=html;
+}
+
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 loadLocal();
