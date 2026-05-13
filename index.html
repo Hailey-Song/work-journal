@@ -211,6 +211,7 @@
     <h2 style="font-size:20px;font-weight:700;margin-bottom:18px;letter-spacing:-0.4px">📁 프로젝트</h2>
     <div id="proj-list"></div>
     <div class="proj-add-row">
+      <input type="color" id="proj-color-input" value="#1D9E75" style="width:40px;height:42px;border:1px solid var(--border);border-radius:9px;cursor:pointer;padding:2px;background:var(--bg);flex-shrink:0">
       <input class="proj-add-input" id="proj-input" placeholder="새 프로젝트 이름" onkeydown="if(event.key==='Enter')addProject()">
       <button class="btn-primary" onclick="addProject()">추가</button>
     </div>
@@ -270,7 +271,20 @@ const todayStr = fmt();
 let S = { entries:{}, projects:[], page:'today', date:todayStr, newProjAlert:[], lastSync:'' };
 
 function loadLocal() {
-  try { const r=localStorage.getItem(STORE); if(r){const p=JSON.parse(r);S.entries=p.entries||{};S.projects=p.projects||[];S.lastSync=p.lastSync||'';} } catch{}
+  try {
+    const r=localStorage.getItem(STORE);
+    if(r){
+      const p=JSON.parse(r);
+      S.entries=p.entries||{};
+      S.lastSync=p.lastSync||'';
+      // 마이그레이션: string[] → {name,color}[]
+      const raw = p.projects||[];
+      S.projects = raw.map(function(item,i){
+        if(typeof item==='string') return {name:item, color:PALETTE[i%PALETTE.length]};
+        return item;
+      });
+    }
+  } catch{}
 }
 function saveLocal() {
   try { localStorage.setItem(STORE,JSON.stringify({entries:S.entries,projects:S.projects,lastSync:S.lastSync})); } catch{}
@@ -349,7 +363,7 @@ function renderToday() {
       <input class="item-text${t.done?' done':''}" value="${esc(t.text)}" placeholder="할 일 입력..."
         onchange="updateTodoText('${t.id}',this.value)"
         onkeydown="todoKey(event,'${t.id}',${i})">
-      ${t.project?`<span class="proj-tag">${esc(t.project)}</span>`:''}
+      ${t.project?'<span class="proj-tag" style="background:'+projColor(t.project)+'22;color:'+projColor(t.project)+';border:1px solid '+projColor(t.project)+'44">'+esc(t.project)+'</span>':''}
       ${projSelect('todo',t.id,t.project)}
       <button class="del-btn" onclick="removeTodo('${t.id}')">✕</button>`;
     tl.appendChild(d);
@@ -366,7 +380,7 @@ function renderToday() {
         <input class="item-text${c.done?' done':''}" value="${esc(c.text)}" placeholder="체크 사항..." onchange="updateCheckText('${c.id}',this.value)">
         <div class="time-hint">${c.time||''}</div>
       </div>
-      ${c.project?`<span class="proj-tag">${esc(c.project)}</span>`:''}
+      ${c.project?'<span class="proj-tag" style="background:'+projColor(c.project)+'22;color:'+projColor(c.project)+';border:1px solid '+projColor(c.project)+'44">'+esc(c.project)+'</span>':''}
       ${projSelect('check',c.id,c.project)}
       <button class="del-btn" onclick="removeCheck('${c.id}')">✕</button>`;
     cl.appendChild(d);
@@ -387,7 +401,7 @@ function renderToday() {
         <input type="date" value="${f.dueDate||''}" onchange="updateFollowupDate('${f.id}',this.value)"
           style="border:none;background:transparent;font-size:11px;color:var(--text2);cursor:pointer;margin-top:1px">
       </div>
-      ${f.project?`<span class="proj-tag">${esc(f.project)}</span>`:''}
+      ${f.project?'<span class="proj-tag" style="background:'+projColor(f.project)+'22;color:'+projColor(f.project)+';border:1px solid '+projColor(f.project)+'44">'+esc(f.project)+'</span>':''}
       ${projSelect('followup',f.id,f.project)}
       <button class="del-btn" onclick="removeFollowup('${f.id}')">✕</button>`;
     fl.appendChild(d);
@@ -417,17 +431,22 @@ function renderToday() {
 function checkSvg() { return '<svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>'; }
 
 function projSelect(kind, id, cur) {
-  const opts = S.projects.map(p=>`<option value="${esc(p)}"${cur===p?' selected':''}>${esc(p)}</option>`).join('');
-  return `<select class="proj-select" onchange="updateProj('${kind}','${id}',this.value)"><option value="">프로젝트</option>${opts}</select>`;
+  var opts = S.projects.map(function(p){
+    return '<option value="'+esc(p.name)+'"'+(cur===p.name?' selected':'')+'>'+esc(p.name)+'</option>';
+  }).join('');
+  var onch = 'updateProj(' + JSON.stringify(kind) + ',' + JSON.stringify(id) + ',this.value)';
+  return '<select class="proj-select" onchange="'+onch+'"><option value="">프로젝트</option>'+opts+'</select>';
 }
 
 // ── RENDER PROJECTS ──────────────────────────────────────────────────────────
 function renderProjects() {
   const pl=document.getElementById('proj-list'); pl.innerHTML='';
-  if(!S.projects.length) { pl.innerHTML='<div class="empty-hint" style="margin-bottom:12px">프로젝트를 추가하세요</div>'; return; }
-  S.projects.forEach((p,i)=>{
+  if(!S.projects.length) { pl.innerHTML='<div class="empty-hint" style="margin-bottom:12px">프로젝트를 추가하세요</div>'; }
+  S.projects.forEach(function(p,i){
     const row=document.createElement('div'); row.className='proj-list-item';
-    row.innerHTML=`<div class="proj-dot" style="background:var(--blue)"></div><span class="proj-name">${esc(p)}</span><button class="del-btn" style="opacity:1" onclick="removeProject(${i})">✕</button>`;
+    row.innerHTML='<input type="color" value="'+p.color+'" onchange="updateProjColor('+i+',this.value)" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;padding:0;background:none;flex-shrink:0">'
+      +'<span class="proj-name" style="color:'+p.color+';font-weight:500">'+esc(p.name)+'</span>'
+      +'<button class="del-btn" style="opacity:1" onclick="removeProject('+i+')">✕</button>';
     pl.appendChild(row);
   });
 }
@@ -455,7 +474,7 @@ function renderHistory() {
         <span>✅ ${don}/${tot} 완료</span>
         ${(e.checks||[]).filter(c=>c.text.trim()).length?`<span>⚡ 수시체크 ${(e.checks||[]).filter(c=>c.text.trim()).length}건</span>`:''}
         ${(e.followups||[]).filter(f=>f.text.trim()).length?`<span>🔁 팔로우업 ${(e.followups||[]).filter(f=>f.text.trim()).length}건</span>`:''}
-        ${projRates.map(([p,v])=>`<span class="mini-tag">${esc(p)} ${v}%</span>`).join('')}
+        ${projRates.map(function(pv){ return '<span class="mini-tag" style="background:'+projColor(pv[0])+'22;color:'+projColor(pv[0])+'">'+esc(pv[0])+' '+pv[1]+'%</span>'; }).join('')}
       </div>`;
     hl.appendChild(card);
   });
@@ -525,9 +544,26 @@ function updateStats() {
 function updateRate(p,v) { const e=getEntry(S.date); setEntry(S.date,{inputRates:{...e.inputRates,[p]:v}}); renderToday(); }
 
 // projects
-function addProject() { const inp=document.getElementById('proj-input'); const n=inp.value.trim(); if(!n||S.projects.includes(n)) return; S.projects.push(n); inp.value=''; saveLocal(); renderProjects(); }
+function addProject() {
+  const inp=document.getElementById('proj-input');
+  const colorSel=document.getElementById('proj-color-input');
+  const n=inp.value.trim();
+  if(!n) return;
+  if(S.projects.find(function(p){return p.name===n;})) { showToast('이미 있는 프로젝트예요','warn'); return; }
+  const color = colorSel ? colorSel.value : PALETTE[S.projects.length%PALETTE.length];
+  S.projects.push({name:n, color:color});
+  inp.value=''; saveLocal(); renderProjects();
+}
 function removeProject(i) { S.projects.splice(i,1); saveLocal(); renderProjects(); }
-function acceptNewProjects() { S.newProjAlert.forEach(p=>{if(!S.projects.includes(p))S.projects.push(p);}); showToast('프로젝트 추가됐어요!'); S.newProjAlert=[]; saveLocal(); renderToday(); }
+function updateProjColor(i, color) { S.projects[i].color=color; saveLocal(); renderProjects(); renderToday(); }
+function acceptNewProjects() {
+  S.newProjAlert.forEach(function(p){
+    if(!S.projects.find(function(x){return x.name===p;})){
+      S.projects.push({name:p, color:PALETTE[S.projects.length%PALETTE.length]});
+    }
+  });
+  showToast('프로젝트 추가됐어요!'); S.newProjAlert=[]; saveLocal(); renderToday();
+}
 function dismissNewProj() { S.newProjAlert=[]; renderToday(); }
 
 // ── GOOGLE SHEETS ────────────────────────────────────────────────────────────
@@ -586,7 +622,11 @@ async function handleClassify() {
   if(!items.length){showToast('분류할 항목이 없어요','warn');return;}
   const btn=document.getElementById('classify-btn'); btn.disabled=true; btn.textContent='⏳ 분류 중...';
   try {
-    const prompt=`업무 항목들을 기존 프로젝트에 분류해주세요.\n기존 프로젝트: ${S.projects.length?S.projects.join(', '):'(없음)'}\n항목:\n${items.map(i=>`[${i.id}] ${i.text}`).join('\n')}\n새 프로젝트가 필요하면 new_projects에 추가.\nJSON만 출력:\n{"classified":[{"id":"id","project":"프로젝트명"}],"new_projects":["신규"]}`;
+    // 프로젝트 없으면 AI가 추천까지 해주는 프롬프트
+    const noProjects = S.projects.length === 0;
+    const prompt = noProjects
+      ? `아래 업무 항목들을 분석해서 적합한 프로젝트명을 추천하고 분류해주세요.\n항목:\n${items.map(i=>`[${i.id}] ${i.text}`).join('\n')}\n\n프로젝트명은 짧고 명확하게 (예: 마케팅, 개발, 운영, 기획 등).\nJSON만 출력:\n{"classified":[{"id":"id","project":"프로젝트명"}],"new_projects":["추천프로젝트1","추천프로젝트2"]}`
+      : `업무 항목들을 기존 프로젝트에 분류해주세요.\n기존 프로젝트: ${S.projects.join(', ')}\n항목:\n${items.map(i=>`[${i.id}] ${i.text}`).join('\n')}\n새 프로젝트가 필요하면 new_projects에 추가.\nJSON만 출력:\n{"classified":[{"id":"id","project":"프로젝트명"}],"new_projects":["신규"]}`;
     const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})});
     const data=await res.json();
     const text=(data.content||[]).map(c=>c.text||'').join('').replace(/```json[\s\S]*?```|```/g,'').trim();
@@ -595,7 +635,12 @@ async function handleClassify() {
     const fresh=getEntry(S.date);
     setEntry(S.date,{todos:(fresh.todos||[]).map(t=>({...t,project:map[t.id]??t.project})),checks:(fresh.checks||[]).map(c=>({...c,project:map[c.id]??c.project})),followups:(fresh.followups||[]).map(f=>({...f,project:map[f.id]??f.project}))});
     const newP=(result.new_projects||[]).filter(p=>!S.projects.includes(p));
-    if(newP.length) S.newProjAlert=newP; else showToast('분류 완료!');
+    if(newP.length){
+      S.newProjAlert=newP;
+      if(noProjects) showToast('프로젝트를 추천했어요! 확인 후 추가하세요 👆');
+    } else {
+      showToast('분류 완료!');
+    }
     renderToday();
   } catch { showToast('분류 실패','err'); }
   btn.disabled=false; btn.textContent='🤖 AI 자동 분류';
@@ -734,7 +779,7 @@ function renderPieChart(elId, allRates) {
     var ix1=CX+IR*Math.cos(startAngle), iy1=CY+IR*Math.sin(startAngle);
     var ix2=CX+IR*Math.cos(endAngle), iy2=CY+IR*Math.sin(endAngle);
     var large = slice>Math.PI?1:0;
-    var color=COLORS[i%COLORS.length];
+    var color=projColor(p);
     svg+='<path d="M '+ix1+' '+iy1+' L '+x1+' '+y1+' A '+R+' '+R+' 0 '+large+' 1 '+x2+' '+y2+' L '+ix2+' '+iy2+' A '+IR+' '+IR+' 0 '+large+' 0 '+ix1+' '+iy1+' Z" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
     // 라벨
     var midAngle = startAngle+slice/2;
@@ -750,7 +795,7 @@ function renderPieChart(elId, allRates) {
   var legend = entries.map(function(pv,i){
     var pct=Math.round(pv[1]/total*100);
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--bg3)">'
-      +'<span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:3px;background:'+COLORS[i%COLORS.length]+';flex-shrink:0"></span><span style="font-size:14px">'+pv[0]+'</span></span>'
+      +'<span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:3px;background:'+projColor(pv[0])+';flex-shrink:0"></span><span style="font-size:14px">'+pv[0]+'</span></span>'
       +'<span style="font-weight:700;color:'+COLORS[i%COLORS.length]+';font-size:14px">'+pct+'%</span></div>';
   }).join('');
 
@@ -762,7 +807,7 @@ function renderBarChart(elId, avgRates) {
   if(!Object.keys(avgRates).length){ el.innerHTML='<div class="empty-hint">투입율 데이터가 없어요</div>'; return; }
   var sorted = Object.entries(avgRates).sort(function(a,b){return b[1]-a[1];});
   el.innerHTML = sorted.map(function(pv,i){
-    var color=COLORS[i%COLORS.length];
+    var color=projColor(pv[0]);
     return '<div style="margin-bottom:14px">'
       +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">'
       +'<span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:'+color+';display:inline-block"></span>'+pv[0]+'</span>'
@@ -785,7 +830,7 @@ function renderLineChart(elId, dailyRates, projects) {
     svg+='<text x="'+(PL-4)+'" y="'+(y+4)+'" font-size="9" fill="var(--text3)" text-anchor="end">'+v+'</text>';
   });
   projects.forEach(function(p,pi){
-    var color=COLORS[pi%COLORS.length];
+    var color=projColor(p);
     var pts=dailyRates.map(function(d,i){ return {x:PL+i*xStep, y:PT+cH-((d.rates[p]||0)/100*cH), v:d.rates[p]||0}; });
     var path=pts.map(function(pt,i){return (i===0?'M':'L')+pt.x.toFixed(1)+','+pt.y.toFixed(1);}).join(' ');
     svg+='<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>';
@@ -795,7 +840,7 @@ function renderLineChart(elId, dailyRates, projects) {
     svg+='<text x="'+(PL+i*xStep).toFixed(1)+'" y="'+(H-6)+'" font-size="9" fill="var(--text3)" text-anchor="middle">'+parseInt(d.date.slice(8))+'일</text>';
   });
   svg+='</svg>';
-  var legend=projects.map(function(p,i){ return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin-right:10px"><span style="width:12px;height:3px;background:'+COLORS[i%COLORS.length]+';display:inline-block;border-radius:2px"></span>'+p+'</span>'; }).join('');
+  var legend=projects.map(function(p,i){ return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin-right:10px"><span style="width:12px;height:3px;background:'+projColor(p)+';display:inline-block;border-radius:2px"></span>'+p+'</span>'; }).join('');
   el.innerHTML='<div style="overflow-x:auto">'+svg+'</div><div style="margin-top:8px">'+legend+'</div>';
 }
 
